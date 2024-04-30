@@ -1,0 +1,32 @@
+trainer_params : 
+  'epochs': 200 
+  'do_dev_every_n_epochs': 5 
+  'print_results_every_n_epochs': 10
+  'save_model': False
+  'load_previous_model': True
+  # 'load_model_path': 'saved_models/2024_04_26/symmetry_aware/1714168194.pt'
+  # 'load_model_path': 'saved_models/2024_04_28/symmetry_aware/1714350882.pt'
+  'load_model_path': 'saved_models/2024_04_29/symmetry_aware/1714434815.pt'
+  # 'load_model_path': 'saved_models/2024_04_30/symmetry_aware/matching_constraint/1714487045.pt'
+  # 'load_model_path': 'saved_models/2024_04_30/symmetry_aware/both_constraints/1714487028.pt'
+  'choose_best_model_on': 'dev_loss'
+  'epochs_between_save': 5  # Save if cost improved, and at least this number of epochs have passed
+
+optimizer_params: 
+  'learning_rate': 1.0
+
+nn_params: 
+  'name': 'symmetry_aware'
+  'inner_layer_activations':
+    'man': 'elu'
+    'woman': 'elu'
+  'output_layer_activation':
+    'man': null
+    'woman': null
+  'initial_bias': null
+  'neurons_per_hidden_layer':
+    'man': [64, 64]
+    'woman': [64, 64]
+  'output_sizes':
+    'man': 11
+    'woman': 11
