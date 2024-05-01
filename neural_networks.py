@@ -128,52 +128,51 @@ class SymmetryAware(MyNeuralNetwork):
         """
 
         if proposals:
-            x  = self.unpack_and_concat_args(args, ['m_preferences', 'current_matching', 'current_proposal_matrix'], flatten=False, dim=2)
-            # print(f'man input: {x[0, 0].round()}')
-            # x = self.unpack_and_concat_args(args, ['w_preferences', 'm_preferences', 'current_matching', 'current_proposal_matrix'])
+            # check if type of self is EncoderSymmetryAware
+            
+            if isinstance(self, EncoderSymmetryAware):
+                x  = self.unpack_and_concat_args(args, ['current_matching', 'current_proposal_matrix'], flatten=False, dim=2)
+                # print(f'x: {x.shape}')
+                # print(f"m_preferences: {args['m_preferences'].shape}")
+                encoded_man_features = self.net['man_encoder'](args['m_preferences'])
+                # print(f'encoded_man_features: {encoded_man_features.shape}')
+                x = torch.cat([encoded_man_features, x], dim=2)
+                # print(f'x: {x.shape}')
+            else:
+                x  = self.unpack_and_concat_args(args, ['m_preferences', 'current_matching', 'current_proposal_matrix'], flatten=False, dim=2)
             x = self.net['man'](x)
-            # print(f'x.shape: {x.shape}')
             x = self.activation_functions['softmax_2'](x)
-            if args['test'] and False:
-                # print(f'x: {x[0]}')
+            if args['test']:
                 x = self.activation_functions['hardmax'](x).float().detach()
-                # print(f'x: {x[0]}')
-            # x = x + self.activation_functions['hardmax'](x).detach() - x.detach()
-            # print(f'x.shape: {x.shape}')
-            # print()
-            # x = x.reshape(-1, self.args['m']*self.args['w'])
-            # print(f"x: {x[0][10: 20].sum()}")
-            # print(f'x.shape: {x.shape}')
-            # print(f'proposal: {x[:, :, : -1][0].round()}')
             x = x[:, :, : -1]
-            # x = torch.minimum(x, 1 - args['current_proposal_matrix'])  # cannot propose to previous proposals
             return x
-            # return x[:, :, : -1]
         else:
-            w_preferences, current_matching, new_proposals_matrix  = self.unpack_args(args, ['w_preferences', 'current_matching', 'new_proposals_matrix'])
+            if isinstance(self, EncoderSymmetryAware):
+                current_matching, new_proposals_matrix  = self.unpack_args(args, ['current_matching', 'new_proposals_matrix'])
+                # print(f'x: {x.shape}')
+                # print(f"m_preferences: {args['m_preferences'].shape}")
+                encoded_woman_features = self.net['woman_encoder'](args['w_preferences'])
+                # print(f'encoded_man_features: {encoded_man_features.shape}')
+                # x = torch.cat([encoded_woman_features, x], dim=2)
+                # print(f'x: {x.shape}')
+            else:
+                w_preferences, current_matching, new_proposals_matrix  = self.unpack_args(args, ['w_preferences', 'current_matching', 'new_proposals_matrix'])
+                encoded_woman_features = w_preferences
 
-            # print(f'proposal: {next_proposals_matrix[0].round()}')
-            x = torch.cat([w_preferences] + [torch.transpose(val, 1, 2) for val in [current_matching, new_proposals_matrix]], dim=2)
-            # if self.internal_counter == 0:
-            #     print(f'x: {x[0]}')
-            # print(f'woman input: {torch.cat([w_preferences] + [torch.transpose(val, 1, 2).round() for val in [current_matching, next_proposals_matrix]], dim=2)[0, 0]}')
+            x = torch.cat([encoded_woman_features] + [torch.transpose(val, 1, 2) for val in [current_matching, new_proposals_matrix]], dim=2)
             x = self.net['woman'](x)
             x = self.activation_functions['softmax_2'](x)
-            # if self.internal_counter == 0:
-            #     print(f'softmax: {x[0]}')
-            # self.internal_counter += 1
-            if args['test'] and False:
+            if args['test']:
                 # print(f'x: {x[0]}')
                 x = self.activation_functions['hardmax'](x).float().detach()
-            # x = self.activation_functions['straight_through_hardmax'](x)
-            # x = x + self.activation_functions['hardmax'](x).detach() - x.detach()
-            # print(f'new_matching: {x[:, :, : -1].transpose(1, 2)[0].round()}')
-            # print()
             x = x[:, :, : -1].transpose(1, 2)
-            # x = torch.minimum(x, current_matching + new_proposals_matrix)
 
             return x
             # return x[:, :, : -1].transpose(1, 2)
+
+class EncoderSymmetryAware(SymmetryAware):
+
+    pass
 
 class STHardmaxFunction(torch.autograd.Function):
     @staticmethod
@@ -240,6 +239,7 @@ class NeuralNetworkCreator:
 
         architectures = {
             'symmetry_aware': SymmetryAware, 
+            'encoder_symmetry_aware': EncoderSymmetryAware, 
             # 'vanilla': Vanilla, 
             }
         return architectures[name]

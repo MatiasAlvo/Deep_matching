@@ -2,14 +2,14 @@ trainer_params :
   'epochs': 200 
   'do_dev_every_n_epochs': 5 
   'print_results_every_n_epochs': 10
-  'save_model': True
-  'load_previous_model': False
+  'save_model': False
+  'load_previous_model': True
   # 'load_model_path': 'saved_models/2024_04_26/symmetry_aware/1714168194.pt'
   # 'load_model_path': 'saved_models/2024_04_28/symmetry_aware/1714350882.pt'
   # 'load_model_path': 'saved_models/2024_04_29/symmetry_aware/1714434815.pt'
   # 'load_model_path': 'saved_models/2024_04_30/symmetry_aware/matching_constraint/1714487045.pt'
   # 'load_model_path': 'saved_models/2024_04_30/symmetry_aware/both_constraints/1714487028.pt'
-  'load_model_path': 'saved_models/2024_05_01/symmetry_aware/both_constraints/1714570058.pt'
+  'load_model_path': 'saved_models/2024_05_01/encoder_symmetry_aware/both_constraints/1714573226.pt'
   'choose_best_model_on': 'dev_loss'
   'epochs_between_save': 5  # Save if cost improved, and at least this number of epochs have passed
 
@@ -17,17 +17,25 @@ optimizer_params:
   'learning_rate': 1.0
 
 nn_params: 
-  'name': 'symmetry_aware'
+  'name': 'encoder_symmetry_aware'
   'inner_layer_activations':
     'man': 'elu'
     'woman': 'elu'
+    'man_encoder': 'elu'
+    'woman_encoder': 'elu'
   'output_layer_activation':
     'man': null
     'woman': null
+    'man_encoder': null
+    'woman_encoder': null
   'initial_bias': null
   'neurons_per_hidden_layer':
     'man': [64, 64]
     'woman': [64, 64]
+    'man_encoder': [64, 64]
+    'woman_encoder': [64, 64]
   'output_sizes':
     'man': 11
     'woman': 11
+    'man_encoder': 32
+    'woman_encoder': 32

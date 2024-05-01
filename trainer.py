@@ -2,6 +2,7 @@ from loss_functions import *
 import datetime
 import os
 import copy
+from stable_marriage import *
 
 class Trainer():
     """
@@ -40,14 +41,15 @@ class Trainer():
     
     def get_proposal_index_from_matrix(self, proposal_matrix, dim=3):
         """
-        Get the index of the proposal matrix
+        For each row (corresponding to a man), return the index of the entry with the highest value
+        We first concatenate the matrix with a matrix of 1s - sum of the matrix along the last dimension, representing the case where no proposal is made
+
+        Args:
+        proposal_matrix: tensor in which the last 2 dimensions are of length m and w, respectively
         """
 
-        proposals_and_no_proposals = torch.cat([proposal_matrix, 1 - torch.sum(proposal_matrix, dim=dim).unsqueeze(dim)], dim=dim)
-        # no_proposal_bools =  (torch.sum(proposal_matrix, dim=2) < 0.5).int()
-        # print(f"no_proposal_matrix: {no_proposal_bools[0]}")
+        proposals_and_no_proposals = torch.cat([proposal_matrix, 1 - torch.sum(proposal_matrix, dim=dim).unsqueeze(dim)], dim=dim)    
         return torch.argmax(proposals_and_no_proposals, dim=dim)
-        # return torch.clip(torch.argmax(proposal_matrix, dim=2)*(1 - 2*no_proposal_bools), min=-1)
 
     def train(self, epochs, loss_function, model, data_loaders, optimizer, feature_keys, label_keys, trainer_params):
         """
@@ -82,47 +84,11 @@ class Trainer():
             self.all_dev_losses.append(average_dev_loss)
             
             print(f'epoch: {epoch + 1}')
-            print(f'Average per-period train loss: {average_train_loss}')
-            print(f'Average per-period dev loss: {average_dev_loss}')
+            print(f'Average train loss: {average_train_loss}')
+            print(f'Average dev loss: {average_dev_loss}')
 
+            # update best model parameters if it achieves best performance so far, and save the model (if minimum number of epochs between saves has passed)
             self.update_best_params_and_save(epoch, average_train_loss, average_dev_loss, trainer_params, model, optimizer)
-            # if trainer_params['save_model']:
-            #     print(f'Saving')
-
-            #     self.save_model(epoch, model, optimizer, trainer_params)
-
-
-            # if epoch % trainer_params['do_dev_every_n_epochs'] == 0:
-            #     average_dev_loss, average_dev_loss_to_report = self.do_one_epoch(
-            #         optimizer, 
-            #         data_loaders['dev'], 
-            #         loss_function, 
-            #         simulator, 
-            #         model, 
-            #         params_by_dataset['dev']['periods'], 
-            #         problem_params, 
-            #         observation_params, 
-            #         train=False, 
-            #         ignore_periods=params_by_dataset['dev']['ignore_periods']
-            #         )
-                
-            #     self.all_dev_losses.append(average_dev_loss_to_report)
-
-            #     # Check if the current model is the best model so far, and save the model parameters if so.
-            #     # Save the model if specified in the trainer_params
-            #     self.update_best_params_and_save(epoch, average_train_loss_to_report, average_dev_loss_to_report, trainer_params, model, optimizer)
-                
-            # else:
-            #     average_dev_loss, average_dev_loss_to_report = 0, 0
-            #     self.all_dev_losses.append(self.all_dev_losses[-1])
-
-
-            # # Print epoch number and average per-period loss every 10 epochs
-            # if epoch % trainer_params['print_results_every_n_epochs'] == 0:
-            #     print(f'epoch: {epoch + 1}')
-            #     print(f'Average per-period train loss: {average_train_loss_to_report}')
-            #     print(f'Average per-period dev loss: {average_dev_loss_to_report}')
-            #     print(f'Best per-period dev loss: {self.best_performance_data["dev_loss"]}')
     
     def test(self, loss_function, model, data_loaders, optimizer, feature_keys, label_keys):
 
@@ -137,9 +103,8 @@ class Trainer():
                 train=False,
                 test=True, 
                 )
-        # self.all_train_losses.append(average_train_loss)
 
-        print(f'Average per-period test loss: {average_test_loss}')
+        print(f'Average test loss: {average_test_loss}')
         
         return average_test_loss
 
@@ -157,7 +122,8 @@ class Trainer():
         total_predictions = 0
         total_final_predictions = 0
         total_final_samples = 0
-        # total_samples = 0
+        is_stable_counter = 0
+        finished_counter = 0
 
         for i, data_batch in enumerate(data_loader):  # Loop through batches of data
             all_predicted_proposals = []
@@ -166,10 +132,12 @@ class Trainer():
             feature_batch = {k: data_batch[k] for k in feature_keys}
             target_batch = {label: data_batch[label] for label in label_keys}
             max_t = feature_batch[feature_keys[0]].shape[1]
+
+            # as we want the algorithm to "flow" through the time horizon, we will keep track of the simulated proposals (i.e. matrix of all proposals done so far,
+            # with a 1 representing that the i-th man already proposed to the j-th woman) and the simulated matching (i.e. the matching matrix at after 
+            # t iterations of the algorithm)
             simulated_proposals = feature_batch['current_proposal_matrix'][:, 0]
             simulated_matching = feature_batch['current_matching'][:, 0]
-            # print(f"target_batch: {target_batch[label_keys[0]].shape}")
-            # target_batch = data_batch[label_keys]
             
             if train:
                 # Zero-out the gradient
@@ -177,21 +145,24 @@ class Trainer():
 
             for t in range(max_t):
                 # Forward pass
+
+                ############ proposal step ############
                 feats_to_feed = {k: v[:, t] for k, v in feature_batch.items()}
                 feats_to_feed.update({'test': test})
-                feats_to_feed['current_proposal_matrix'] = simulated_proposals
-                # print(f'rand: {(torch.rand(simulated_proposals.shape[0], 1, 1) < 0.5).shape}')
-                # print(f'simulated_proposals: {simulated_proposals.shape}')
-                # print(f'simulated_matching: {simulated_matching.shape}')
-                # print(f"feature_batch['current_proposal_matrix']: {feature_batch['current_proposal_matrix'][:, t].shape}")
-                # print(f"feature_batch['current_matching'][:, t]: {feature_batch['current_matching'][:, t].shape}")
+                # feats_to_feed['current_proposal_matrix'] = simulated_proposals
 
-                # C = torch.where((torch.rand(simulated_proposals.shape[0], 1, 1) < 0.5).to(self.device), simulated_proposals, feature_batch['current_proposal_matrix'][:, t])
+                # In theory, we could apply teacher forcing, with which we would replace the current proposal matrix or current matching given by
+                # Our neural networks with the "correct" values of proposal matrix or matching matrix.
+                # prob is the probability of NOT resetting the algorithm
                 prob = 1.0
-                if train and False:  # probability of NOT resetting the algorithm
-                    prob = 1 - 0.995**epoch
-                    # print(f"prob: {prob}")
-                indexes =(torch.rand(simulated_proposals.shape[0], 1, 1) < prob).to(self.device)
+                # In early, experiment, teacher forcing did not work well, so we will not use it. otherwise, we would uncomment the following lines
+                # if train:  # probability of NOT resetting the algorithm
+                #     prob = 1 - 0.995**epoch # probability of NOT resetting the algorithm increases exponentially with the number of epochs
+
+                # indexes is a tensor of shape (batch_size, 1, 1) with values 0 or 1, where 1 means that we will use the simulated_proposals, 
+                # and 0 means that we will use the predicted proposals
+                indexes =(torch.rand(simulated_proposals.shape[0]) < prob).to(self.device).unsqueeze(1).unsqueeze(2)
+                # indexes =(torch.rand(simulated_proposals.shape[0], 1, 1) < prob).to(self.device)
                 simulated_proposals = self.random_teacher_forcing(simulated_proposals, feature_batch['current_proposal_matrix'][:, t], indexes)
                 simulated_matching = self.random_teacher_forcing(simulated_matching, feature_batch['current_matching'][:, t], indexes)
                 feats_to_feed['current_proposal_matrix'] = simulated_proposals
@@ -200,9 +171,9 @@ class Trainer():
                 pred_proposal = model.forward(feats_to_feed, proposals=True)              
                 simulated_proposals = simulated_proposals + pred_proposal
                 # C = torch.where(torch.rand(A.shape[0], 1, 1) < 0.5, A[0].unsqueeze(1), B[0].unsqueeze(1))
-
                 all_predicted_proposals.append(pred_proposal)
 
+                ############ proposal step ############
                 feats_to_feed = {k: v[:, t] for k, v in feature_batch.items()}
                 feats_to_feed.update({'test': test})
                 # feats_to_feed['new_proposals_matrix'] = target_batch['new_proposals_matrix'][:, t]
@@ -225,8 +196,8 @@ class Trainer():
 
 
             # print(f"stacked_predictions: {stacked_predictions.shape}")
-            batch_loss = loss(stacked_predicted_proposals, target_batch['new_proposals_matrix'], target_batch['not_finished']) + \
-                loss(stacked_predicted_matchings, target_batch['next_matching_matrix'], target_batch['not_finished'])
+            batch_loss = loss(stacked_predicted_proposals, target_batch['new_proposals_matrix'], target_batch['not_finished'], {'m_preferences': feature_batch['m_preferences']}, proposal=True) + \
+                loss(stacked_predicted_matchings, target_batch['next_matching_matrix'], target_batch['not_finished'], {'w_preferences': feature_batch['w_preferences']}, proposal=False)
             
             # batch_loss = loss(pred, target_batch['new_proposals_matrix'])  # Rewards from period 0
             epoch_loss += batch_loss  # Rewards from period 0
@@ -288,6 +259,25 @@ class Trainer():
                 total_final_predictions += matching_indices_last.shape[0]*matching_indices_last.shape[1]
                 total_final_samples += matching_indices_last.shape[0]
 
+                matching_dict_last = {i: matching_indices_last[i] for i in range(matching_indices_last.shape[0])}
+
+                all_m_preferences = feature_batch['m_preferences']
+                all_w_preferences = feature_batch['w_preferences']
+                for sample in range(len(all_m_preferences)):
+                    if target_batch["not_finished"][:, -1][sample] == 0:
+                        finished_counter += 1
+                        # second index corresponds to time index, and preferences are the same across time, so we only consider t=0
+                        m_preferences = all_m_preferences[sample, 0]
+                        w_preferences = all_w_preferences[sample, 0]
+
+                        # for each row i in m_preferences, return a list of indices j in descending orders by the value m_preferences[i, j]
+                        guyprefers = {i: m_preferences[i].argsort(descending=True).tolist() for i in range(m_preferences.shape[0])}
+                        galprefers = {i: w_preferences[i].argsort(descending=True).tolist() for i in range(w_preferences.shape[0])}
+                        this_matching = {i: val for i, val in enumerate(matching_dict_last[sample].tolist()) if val != m_preferences.shape[1]}
+                        marriage_model = MarriageModel(guyprefers, galprefers)
+                        if marriage_model.is_stable(this_matching) == True:
+                            is_stable_counter += 1
+
                 # print(f'matching_indices_last: {matching_indices_last[0]}')
                 # print(f'matching_indices_last: {matching_indices_last.shape}')
         
@@ -302,6 +292,7 @@ class Trainer():
             print(f"matching_accuracy: {matching_accuracy}")
             print(f"final_matching_accuracy: {final_matching_accuracy}")
             print(f"complete_final_matching_accuracy: {complete_final_matching_accuracy}")
+            print(f'is_stable_ratio: {is_stable_counter/(finished_counter)}')
         del mean_loss, loss, batch_loss, pred_proposal, pred_matching, stacked_predicted_proposals, stacked_predicted_matchings
         # assert False
         return (epoch_loss/(total_samples*feature_batch['current_proposal_matrix'][:, 0].shape[1])).detach()
